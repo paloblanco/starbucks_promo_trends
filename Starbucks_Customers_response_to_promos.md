@@ -838,18 +838,678 @@ This is a very high-level view of the data. I will now take a more regimented ap
 
 ## Section 3: Methodology
 
-My goal 
+My goal is to develop a model which can fit Starbucks' activities around promotions to overall spend of a customer. Specifically, per customer, we want to see the correlation between:
+- Inputs:
+  - bogo count received
+  - discount count received
+  - informational count received
+  - total offers received
+  - mobile offers received
+  - web offers received
+  - social offers received
+  - email offers received
+- Ouput:
+  - total spend during test period.
+
+Optionally, if I see a strong correlation, I will use it to maximize the types of offers we send to customers.
 
 ### Data Preprocessing
-<!-- describe the steps taken to preprocess the data and address any abnormalities in the data sets. If data preprocessing is not needed, please explain why. -->
+
+I already know that there are some spending habit differences inherent in age and income. To minimize this, I will look at each users' relative spending to the mean of their demographic.
+
+I can start with our per-person table, which has been used for visualizations above. I also want to remove outliers, so I will only consider users who spend less than $400 a month. Additionally, I saw that users who spend less than $10 per transaction only account for 7% of our profits, so I will focus on our profit base by considersing users whose mean spend-per-transaction is at least $10.
+
+```python
+# paired difference modeling:
+df_pair = df_p[df_p["spendpertransaction"]>=10][df_p.spend <= 400][[
+    "age",
+    "income",
+    "tenure",
+    "bogo",
+    "discount",
+    "informational",
+    "totaloffers",
+    "offer viewed",
+    "offer completed",
+    "mobile",
+    "web",
+    "social",
+    "email",
+    "spend",
+    "spendpertransaction",
+    "transaction"
+]]
+df_pair["income_bin"] = (df_pair.income // 10000)*10000
+df_pair["age_bin"] = (df_pair.age // 10) * 10
+
+# within each group, get the means for spend, transaction, and spendpertransaction. report these back to df_pair. do corr on these.
+
+df_summary = df_pair.groupby(["income_bin","age_bin"])[["spend","transaction","spendpertransaction"]].mean()
+df_std = df_pair.groupby(["income_bin","age_bin"])[["spend","transaction","spendpertransaction"]].std()
+df_groupsize = df_pair.groupby(["income_bin","age_bin"])["spend"].count()
+
+df_summary["spend_std"] = df_std.spend
+df_summary["transaction_std"] = df_std.transaction
+df_summary["spendpertransaction_std"] = df_std.spendpertransaction
+df_summary["groupsize"] = df_groupsize
+
+df_lookup_bins = df_summary.reset_index()
+
+df_paired_means = df_pair.merge(df_lookup_bins, how='left', left_on=["age_bin","income_bin"], right_on=["age_bin","income_bin"], suffixes = ("","_mean"))
+df_paired_means = df_paired_means[[
+    "income_bin",
+    "age_bin",
+    "bogo",
+    "discount",
+    "informational",
+    "totaloffers",
+    "offer viewed",
+    "offer completed",
+    "mobile",
+    "web",
+    "social",
+    "email",
+    "spend",
+    "spend_mean",
+    "spend_std",
+    "transaction",
+    "transaction_mean",
+    "transaction_std",
+    "spendpertransaction",
+    "spendpertransaction_mean",
+    "spendpertransaction_std",
+]]
+df_paired_means["spend_rel"] = df_paired_means.spend - df_paired_means.spend_mean
+df_paired_means["transaction_rel"] = df_paired_means.transaction - df_paired_means.transaction_mean
+df_paired_means["spendpertransaction_rel"] = df_paired_means.spendpertransaction - df_paired_means.spendpertransaction_mean
+```
+
+Before modeling this data, it will be useful to look at the correlation matrix for it:
+
+```python
+df_pair_corr = df_paired_means[[
+    "bogo",
+    "discount",
+    "informational",
+    "totaloffers",
+    "offer viewed",
+    "offer completed",
+    "mobile",
+    "web",
+    "social",
+    "email",
+    "spend_rel",
+    "transaction_rel",
+    "spendpertransaction_rel"
+]].corr()
+df_pair_corr.style.background_gradient(cmap='coolwarm',vmin=-1,vmax=1)
+```
+
+<style type="text/css">
+#T_5d6de_row0_col0, #T_5d6de_row1_col1, #T_5d6de_row2_col2, #T_5d6de_row3_col3, #T_5d6de_row4_col4, #T_5d6de_row5_col5, #T_5d6de_row6_col6, #T_5d6de_row7_col7, #T_5d6de_row8_col8, #T_5d6de_row9_col9, #T_5d6de_row10_col10, #T_5d6de_row11_col11, #T_5d6de_row12_col12 {
+  background-color: #b40426;
+  color: #f1f1f1;
+}
+#T_5d6de_row0_col1, #T_5d6de_row1_col0 {
+  background-color: #9abbff;
+  color: #000000;
+}
+#T_5d6de_row0_col2, #T_5d6de_row1_col2, #T_5d6de_row2_col0, #T_5d6de_row2_col1 {
+  background-color: #b5cdfa;
+  color: #000000;
+}
+#T_5d6de_row0_col3, #T_5d6de_row1_col3, #T_5d6de_row3_col0, #T_5d6de_row3_col1, #T_5d6de_row9_col10, #T_5d6de_row10_col9 {
+  background-color: #f7b093;
+  color: #000000;
+}
+#T_5d6de_row0_col4, #T_5d6de_row4_col0, #T_5d6de_row8_col11, #T_5d6de_row11_col8 {
+  background-color: #f6bda2;
+  color: #000000;
+}
+#T_5d6de_row0_col5, #T_5d6de_row5_col0 {
+  background-color: #f7b396;
+  color: #000000;
+}
+#T_5d6de_row0_col6, #T_5d6de_row3_col8, #T_5d6de_row6_col0, #T_5d6de_row8_col3 {
+  background-color: #f59c7d;
+  color: #000000;
+}
+#T_5d6de_row0_col7, #T_5d6de_row7_col0 {
+  background-color: #f3c8b2;
+  color: #000000;
+}
+#T_5d6de_row0_col8, #T_5d6de_row8_col0 {
+  background-color: #f7a98b;
+  color: #000000;
+}
+#T_5d6de_row0_col9, #T_5d6de_row9_col0 {
+  background-color: #f7a889;
+  color: #000000;
+}
+#T_5d6de_row0_col10, #T_5d6de_row10_col0 {
+  background-color: #e6d7cf;
+  color: #000000;
+}
+#T_5d6de_row0_col11, #T_5d6de_row11_col0 {
+  background-color: #e8d6cc;
+  color: #000000;
+}
+#T_5d6de_row0_col12, #T_5d6de_row3_col12, #T_5d6de_row8_col12, #T_5d6de_row12_col0, #T_5d6de_row12_col3, #T_5d6de_row12_col8 {
+  background-color: #dcdddd;
+  color: #000000;
+}
+#T_5d6de_row1_col4, #T_5d6de_row1_col6, #T_5d6de_row4_col1, #T_5d6de_row4_col11, #T_5d6de_row6_col1, #T_5d6de_row11_col4 {
+  background-color: #f1cdba;
+  color: #000000;
+}
+#T_5d6de_row1_col5, #T_5d6de_row5_col1 {
+  background-color: #f7ac8e;
+  color: #000000;
+}
+#T_5d6de_row1_col7, #T_5d6de_row5_col10, #T_5d6de_row7_col1, #T_5d6de_row10_col5 {
+  background-color: #f29274;
+  color: #f1f1f1;
+}
+#T_5d6de_row1_col8, #T_5d6de_row1_col11, #T_5d6de_row8_col1, #T_5d6de_row11_col1 {
+  background-color: #ead4c8;
+  color: #000000;
+}
+#T_5d6de_row1_col9, #T_5d6de_row9_col1 {
+  background-color: #f7ad90;
+  color: #000000;
+}
+#T_5d6de_row1_col10, #T_5d6de_row10_col1 {
+  background-color: #ebd3c6;
+  color: #000000;
+}
+#T_5d6de_row1_col12, #T_5d6de_row12_col1 {
+  background-color: #dedcdb;
+  color: #000000;
+}
+#T_5d6de_row2_col3, #T_5d6de_row3_col2 {
+  background-color: #f5c2aa;
+  color: #000000;
+}
+#T_5d6de_row2_col4, #T_5d6de_row4_col2 {
+  background-color: #edd1c2;
+  color: #000000;
+}
+#T_5d6de_row2_col5, #T_5d6de_row5_col2 {
+  background-color: #a6c4fe;
+  color: #000000;
+}
+#T_5d6de_row2_col6, #T_5d6de_row6_col2 {
+  background-color: #e3d9d3;
+  color: #000000;
+}
+#T_5d6de_row2_col7, #T_5d6de_row7_col2 {
+  background-color: #c4d5f3;
+  color: #000000;
+}
+#T_5d6de_row2_col8, #T_5d6de_row8_col2, #T_5d6de_row11_col12, #T_5d6de_row12_col11 {
+  background-color: #d3dbe7;
+  color: #000000;
+}
+#T_5d6de_row2_col9, #T_5d6de_row2_col12, #T_5d6de_row9_col2, #T_5d6de_row9_col12, #T_5d6de_row12_col2, #T_5d6de_row12_col9 {
+  background-color: #dbdcde;
+  color: #000000;
+}
+#T_5d6de_row2_col10, #T_5d6de_row2_col11, #T_5d6de_row10_col2, #T_5d6de_row11_col2 {
+  background-color: #d7dce3;
+  color: #000000;
+}
+#T_5d6de_row3_col4, #T_5d6de_row4_col3 {
+  background-color: #ec7f63;
+  color: #f1f1f1;
+}
+#T_5d6de_row3_col5, #T_5d6de_row5_col3 {
+  background-color: #f39778;
+  color: #000000;
+}
+#T_5d6de_row3_col6, #T_5d6de_row6_col3 {
+  background-color: #de614d;
+  color: #f1f1f1;
+}
+#T_5d6de_row3_col7, #T_5d6de_row7_col3, #T_5d6de_row8_col9, #T_5d6de_row9_col8 {
+  background-color: #e97a5f;
+  color: #f1f1f1;
+}
+#T_5d6de_row3_col9, #T_5d6de_row9_col3 {
+  background-color: #cf453c;
+  color: #f1f1f1;
+}
+#T_5d6de_row3_col10, #T_5d6de_row10_col3 {
+  background-color: #efcebd;
+  color: #000000;
+}
+#T_5d6de_row3_col11, #T_5d6de_row4_col10, #T_5d6de_row10_col4, #T_5d6de_row11_col3 {
+  background-color: #f0cdbb;
+  color: #000000;
+}
+#T_5d6de_row4_col5, #T_5d6de_row5_col4 {
+  background-color: #f7b194;
+  color: #000000;
+}
+#T_5d6de_row4_col6, #T_5d6de_row6_col4 {
+  background-color: #da5a49;
+  color: #f1f1f1;
+}
+#T_5d6de_row4_col7, #T_5d6de_row7_col4 {
+  background-color: #ee8468;
+  color: #f1f1f1;
+}
+#T_5d6de_row4_col8, #T_5d6de_row8_col4 {
+  background-color: #f08a6c;
+  color: #f1f1f1;
+}
+#T_5d6de_row4_col9, #T_5d6de_row9_col4 {
+  background-color: #d55042;
+  color: #f1f1f1;
+}
+#T_5d6de_row4_col12, #T_5d6de_row12_col4 {
+  background-color: #d8dce2;
+  color: #000000;
+}
+#T_5d6de_row5_col6, #T_5d6de_row6_col5, #T_5d6de_row6_col7, #T_5d6de_row7_col6 {
+  background-color: #e8765c;
+  color: #f1f1f1;
+}
+#T_5d6de_row5_col7, #T_5d6de_row7_col5 {
+  background-color: #e46e56;
+  color: #f1f1f1;
+}
+#T_5d6de_row5_col8, #T_5d6de_row8_col5 {
+  background-color: #f4987a;
+  color: #000000;
+}
+#T_5d6de_row5_col9, #T_5d6de_row9_col5 {
+  background-color: #d85646;
+  color: #f1f1f1;
+}
+#T_5d6de_row5_col11, #T_5d6de_row11_col5 {
+  background-color: #f29072;
+  color: #f1f1f1;
+}
+#T_5d6de_row5_col12, #T_5d6de_row7_col12, #T_5d6de_row12_col5, #T_5d6de_row12_col7 {
+  background-color: #dddcdc;
+  color: #000000;
+}
+#T_5d6de_row6_col8, #T_5d6de_row8_col6 {
+  background-color: #e16751;
+  color: #f1f1f1;
+}
+#T_5d6de_row6_col9, #T_5d6de_row9_col6 {
+  background-color: #c83836;
+  color: #f1f1f1;
+}
+#T_5d6de_row6_col10, #T_5d6de_row10_col6 {
+  background-color: #f7b79b;
+  color: #000000;
+}
+#T_5d6de_row6_col11, #T_5d6de_row11_col6 {
+  background-color: #f7b599;
+  color: #000000;
+}
+#T_5d6de_row6_col12, #T_5d6de_row12_col6 {
+  background-color: #dadce0;
+  color: #000000;
+}
+#T_5d6de_row7_col8, #T_5d6de_row8_col7 {
+  background-color: #f7b497;
+  color: #000000;
+}
+#T_5d6de_row7_col9, #T_5d6de_row9_col7 {
+  background-color: #d75445;
+  color: #f1f1f1;
+}
+#T_5d6de_row7_col10, #T_5d6de_row7_col11, #T_5d6de_row8_col10, #T_5d6de_row10_col7, #T_5d6de_row10_col8, #T_5d6de_row11_col7 {
+  background-color: #f6bea4;
+  color: #000000;
+}
+#T_5d6de_row9_col11, #T_5d6de_row11_col9 {
+  background-color: #f7af91;
+  color: #000000;
+}
+#T_5d6de_row10_col11, #T_5d6de_row11_col10 {
+  background-color: #c32e31;
+  color: #f1f1f1;
+}
+#T_5d6de_row10_col12, #T_5d6de_row12_col10 {
+  background-color: #f2cab5;
+  color: #000000;
+}
+</style>
+<table id="T_5d6de">
+  <thead>
+    <tr>
+      <th class="index_name level0" >offername</th>
+      <th id="T_5d6de_level0_col0" class="col_heading level0 col0" >bogo</th>
+      <th id="T_5d6de_level0_col1" class="col_heading level0 col1" >discount</th>
+      <th id="T_5d6de_level0_col2" class="col_heading level0 col2" >informational</th>
+      <th id="T_5d6de_level0_col3" class="col_heading level0 col3" >totaloffers</th>
+      <th id="T_5d6de_level0_col4" class="col_heading level0 col4" >offer viewed</th>
+      <th id="T_5d6de_level0_col5" class="col_heading level0 col5" >offer completed</th>
+      <th id="T_5d6de_level0_col6" class="col_heading level0 col6" >mobile</th>
+      <th id="T_5d6de_level0_col7" class="col_heading level0 col7" >web</th>
+      <th id="T_5d6de_level0_col8" class="col_heading level0 col8" >social</th>
+      <th id="T_5d6de_level0_col9" class="col_heading level0 col9" >email</th>
+      <th id="T_5d6de_level0_col10" class="col_heading level0 col10" >spend_rel</th>
+      <th id="T_5d6de_level0_col11" class="col_heading level0 col11" >transaction_rel</th>
+      <th id="T_5d6de_level0_col12" class="col_heading level0 col12" >spendpertransaction_rel</th>
+    </tr>
+    <tr>
+      <th class="index_name level0" >offername</th>
+      <th class="blank col0" >&nbsp;</th>
+      <th class="blank col1" >&nbsp;</th>
+      <th class="blank col2" >&nbsp;</th>
+      <th class="blank col3" >&nbsp;</th>
+      <th class="blank col4" >&nbsp;</th>
+      <th class="blank col5" >&nbsp;</th>
+      <th class="blank col6" >&nbsp;</th>
+      <th class="blank col7" >&nbsp;</th>
+      <th class="blank col8" >&nbsp;</th>
+      <th class="blank col9" >&nbsp;</th>
+      <th class="blank col10" >&nbsp;</th>
+      <th class="blank col11" >&nbsp;</th>
+      <th class="blank col12" >&nbsp;</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th id="T_5d6de_level0_row0" class="row_heading level0 row0" >bogo</th>
+      <td id="T_5d6de_row0_col0" class="data row0 col0" >1.000000</td>
+      <td id="T_5d6de_row0_col1" class="data row0 col1" >-0.426172</td>
+      <td id="T_5d6de_row0_col2" class="data row0 col2" >-0.266531</td>
+      <td id="T_5d6de_row0_col3" class="data row0 col3" >0.378791</td>
+      <td id="T_5d6de_row0_col4" class="data row0 col4" >0.300873</td>
+      <td id="T_5d6de_row0_col5" class="data row0 col5" >0.365167</td>
+      <td id="T_5d6de_row0_col6" class="data row0 col6" >0.491243</td>
+      <td id="T_5d6de_row0_col7" class="data row0 col7" >0.224091</td>
+      <td id="T_5d6de_row0_col8" class="data row0 col8" >0.415294</td>
+      <td id="T_5d6de_row0_col9" class="data row0 col9" >0.426387</td>
+      <td id="T_5d6de_row0_col10" class="data row0 col10" >0.076674</td>
+      <td id="T_5d6de_row0_col11" class="data row0 col11" >0.087782</td>
+      <td id="T_5d6de_row0_col12" class="data row0 col12" >-0.007161</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row1" class="row_heading level0 row1" >discount</th>
+      <td id="T_5d6de_row1_col0" class="data row1 col0" >-0.426172</td>
+      <td id="T_5d6de_row1_col1" class="data row1 col1" >1.000000</td>
+      <td id="T_5d6de_row1_col2" class="data row1 col2" >-0.272822</td>
+      <td id="T_5d6de_row1_col3" class="data row1 col3" >0.376410</td>
+      <td id="T_5d6de_row1_col4" class="data row1 col4" >0.182718</td>
+      <td id="T_5d6de_row1_col5" class="data row1 col5" >0.406194</td>
+      <td id="T_5d6de_row1_col6" class="data row1 col6" >0.183970</td>
+      <td id="T_5d6de_row1_col7" class="data row1 col7" >0.533162</td>
+      <td id="T_5d6de_row1_col8" class="data row1 col8" >0.110474</td>
+      <td id="T_5d6de_row1_col9" class="data row1 col9" >0.394042</td>
+      <td id="T_5d6de_row1_col10" class="data row1 col10" >0.119164</td>
+      <td id="T_5d6de_row1_col11" class="data row1 col11" >0.115828</td>
+      <td id="T_5d6de_row1_col12" class="data row1 col12" >0.013909</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row2" class="row_heading level0 row2" >informational</th>
+      <td id="T_5d6de_row2_col0" class="data row2 col0" >-0.266531</td>
+      <td id="T_5d6de_row2_col1" class="data row2 col1" >-0.272822</td>
+      <td id="T_5d6de_row2_col2" class="data row2 col2" >1.000000</td>
+      <td id="T_5d6de_row2_col3" class="data row2 col3" >0.257895</td>
+      <td id="T_5d6de_row2_col4" class="data row2 col4" >0.143882</td>
+      <td id="T_5d6de_row2_col5" class="data row2 col5" >-0.357189</td>
+      <td id="T_5d6de_row2_col6" class="data row2 col6" >0.047428</td>
+      <td id="T_5d6de_row2_col7" class="data row2 col7" >-0.179553</td>
+      <td id="T_5d6de_row2_col8" class="data row2 col8" >-0.074091</td>
+      <td id="T_5d6de_row2_col9" class="data row2 col9" >-0.008970</td>
+      <td id="T_5d6de_row2_col10" class="data row2 col10" >-0.043928</td>
+      <td id="T_5d6de_row2_col11" class="data row2 col11" >-0.040612</td>
+      <td id="T_5d6de_row2_col12" class="data row2 col12" >-0.010452</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row3" class="row_heading level0 row3" >totaloffers</th>
+      <td id="T_5d6de_row3_col0" class="data row3 col0" >0.378791</td>
+      <td id="T_5d6de_row3_col1" class="data row3 col1" >0.376410</td>
+      <td id="T_5d6de_row3_col2" class="data row3 col2" >0.257895</td>
+      <td id="T_5d6de_row3_col3" class="data row3 col3" >1.000000</td>
+      <td id="T_5d6de_row3_col4" class="data row3 col4" >0.622780</td>
+      <td id="T_5d6de_row3_col5" class="data row3 col5" >0.511991</td>
+      <td id="T_5d6de_row3_col6" class="data row3 col6" >0.743437</td>
+      <td id="T_5d6de_row3_col7" class="data row3 col7" >0.643348</td>
+      <td id="T_5d6de_row3_col8" class="data row3 col8" >0.487692</td>
+      <td id="T_5d6de_row3_col9" class="data row3 col9" >0.848989</td>
+      <td id="T_5d6de_row3_col10" class="data row3 col10" >0.168402</td>
+      <td id="T_5d6de_row3_col11" class="data row3 col11" >0.179223</td>
+      <td id="T_5d6de_row3_col12" class="data row3 col12" >-0.001515</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row4" class="row_heading level0 row4" >offer viewed</th>
+      <td id="T_5d6de_row4_col0" class="data row4 col0" >0.300873</td>
+      <td id="T_5d6de_row4_col1" class="data row4 col1" >0.182718</td>
+      <td id="T_5d6de_row4_col2" class="data row4 col2" >0.143882</td>
+      <td id="T_5d6de_row4_col3" class="data row4 col3" >0.622780</td>
+      <td id="T_5d6de_row4_col4" class="data row4 col4" >1.000000</td>
+      <td id="T_5d6de_row4_col5" class="data row4 col5" >0.368984</td>
+      <td id="T_5d6de_row4_col6" class="data row4 col6" >0.767934</td>
+      <td id="T_5d6de_row4_col7" class="data row4 col7" >0.594898</td>
+      <td id="T_5d6de_row4_col8" class="data row4 col8" >0.573282</td>
+      <td id="T_5d6de_row4_col9" class="data row4 col9" >0.810511</td>
+      <td id="T_5d6de_row4_col10" class="data row4 col10" >0.177971</td>
+      <td id="T_5d6de_row4_col11" class="data row4 col11" >0.182022</td>
+      <td id="T_5d6de_row4_col12" class="data row4 col12" >-0.035179</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row5" class="row_heading level0 row5" >offer completed</th>
+      <td id="T_5d6de_row5_col0" class="data row5 col0" >0.365167</td>
+      <td id="T_5d6de_row5_col1" class="data row5 col1" >0.406194</td>
+      <td id="T_5d6de_row5_col2" class="data row5 col2" >-0.357189</td>
+      <td id="T_5d6de_row5_col3" class="data row5 col3" >0.511991</td>
+      <td id="T_5d6de_row5_col4" class="data row5 col4" >0.368984</td>
+      <td id="T_5d6de_row5_col5" class="data row5 col5" >1.000000</td>
+      <td id="T_5d6de_row5_col6" class="data row5 col6" >0.660366</td>
+      <td id="T_5d6de_row5_col7" class="data row5 col7" >0.693716</td>
+      <td id="T_5d6de_row5_col8" class="data row5 col8" >0.503632</td>
+      <td id="T_5d6de_row5_col9" class="data row5 col9" >0.788967</td>
+      <td id="T_5d6de_row5_col10" class="data row5 col10" >0.534557</td>
+      <td id="T_5d6de_row5_col11" class="data row5 col11" >0.542306</td>
+      <td id="T_5d6de_row5_col12" class="data row5 col12" >0.002519</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row6" class="row_heading level0 row6" >mobile</th>
+      <td id="T_5d6de_row6_col0" class="data row6 col0" >0.491243</td>
+      <td id="T_5d6de_row6_col1" class="data row6 col1" >0.183970</td>
+      <td id="T_5d6de_row6_col2" class="data row6 col2" >0.047428</td>
+      <td id="T_5d6de_row6_col3" class="data row6 col3" >0.743437</td>
+      <td id="T_5d6de_row6_col4" class="data row6 col4" >0.767934</td>
+      <td id="T_5d6de_row6_col5" class="data row6 col5" >0.660366</td>
+      <td id="T_5d6de_row6_col6" class="data row6 col6" >1.000000</td>
+      <td id="T_5d6de_row6_col7" class="data row6 col7" >0.663163</td>
+      <td id="T_5d6de_row6_col8" class="data row6 col8" >0.721085</td>
+      <td id="T_5d6de_row6_col9" class="data row6 col9" >0.886536</td>
+      <td id="T_5d6de_row6_col10" class="data row6 col10" >0.338143</td>
+      <td id="T_5d6de_row6_col11" class="data row6 col11" >0.349133</td>
+      <td id="T_5d6de_row6_col12" class="data row6 col12" >-0.020335</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row7" class="row_heading level0 row7" >web</th>
+      <td id="T_5d6de_row7_col0" class="data row7 col0" >0.224091</td>
+      <td id="T_5d6de_row7_col1" class="data row7 col1" >0.533162</td>
+      <td id="T_5d6de_row7_col2" class="data row7 col2" >-0.179553</td>
+      <td id="T_5d6de_row7_col3" class="data row7 col3" >0.643348</td>
+      <td id="T_5d6de_row7_col4" class="data row7 col4" >0.594898</td>
+      <td id="T_5d6de_row7_col5" class="data row7 col5" >0.693716</td>
+      <td id="T_5d6de_row7_col6" class="data row7 col6" >0.663163</td>
+      <td id="T_5d6de_row7_col7" class="data row7 col7" >1.000000</td>
+      <td id="T_5d6de_row7_col8" class="data row7 col8" >0.353154</td>
+      <td id="T_5d6de_row7_col9" class="data row7 col9" >0.792882</td>
+      <td id="T_5d6de_row7_col10" class="data row7 col10" >0.292449</td>
+      <td id="T_5d6de_row7_col11" class="data row7 col11" >0.290790</td>
+      <td id="T_5d6de_row7_col12" class="data row7 col12" >0.002048</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row8" class="row_heading level0 row8" >social</th>
+      <td id="T_5d6de_row8_col0" class="data row8 col0" >0.415294</td>
+      <td id="T_5d6de_row8_col1" class="data row8 col1" >0.110474</td>
+      <td id="T_5d6de_row8_col2" class="data row8 col2" >-0.074091</td>
+      <td id="T_5d6de_row8_col3" class="data row8 col3" >0.487692</td>
+      <td id="T_5d6de_row8_col4" class="data row8 col4" >0.573282</td>
+      <td id="T_5d6de_row8_col5" class="data row8 col5" >0.503632</td>
+      <td id="T_5d6de_row8_col6" class="data row8 col6" >0.721085</td>
+      <td id="T_5d6de_row8_col7" class="data row8 col7" >0.353154</td>
+      <td id="T_5d6de_row8_col8" class="data row8 col8" >1.000000</td>
+      <td id="T_5d6de_row8_col9" class="data row8 col9" >0.642789</td>
+      <td id="T_5d6de_row8_col10" class="data row8 col10" >0.289663</td>
+      <td id="T_5d6de_row8_col11" class="data row8 col11" >0.301945</td>
+      <td id="T_5d6de_row8_col12" class="data row8 col12" >-0.007559</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row9" class="row_heading level0 row9" >email</th>
+      <td id="T_5d6de_row9_col0" class="data row9 col0" >0.426387</td>
+      <td id="T_5d6de_row9_col1" class="data row9 col1" >0.394042</td>
+      <td id="T_5d6de_row9_col2" class="data row9 col2" >-0.008970</td>
+      <td id="T_5d6de_row9_col3" class="data row9 col3" >0.848989</td>
+      <td id="T_5d6de_row9_col4" class="data row9 col4" >0.810511</td>
+      <td id="T_5d6de_row9_col5" class="data row9 col5" >0.788967</td>
+      <td id="T_5d6de_row9_col6" class="data row9 col6" >0.886536</td>
+      <td id="T_5d6de_row9_col7" class="data row9 col7" >0.792882</td>
+      <td id="T_5d6de_row9_col8" class="data row9 col8" >0.642789</td>
+      <td id="T_5d6de_row9_col9" class="data row9 col9" >1.000000</td>
+      <td id="T_5d6de_row9_col10" class="data row9 col10" >0.376294</td>
+      <td id="T_5d6de_row9_col11" class="data row9 col11" >0.385340</td>
+      <td id="T_5d6de_row9_col12" class="data row9 col12" >-0.014292</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row10" class="row_heading level0 row10" >spend_rel</th>
+      <td id="T_5d6de_row10_col0" class="data row10 col0" >0.076674</td>
+      <td id="T_5d6de_row10_col1" class="data row10 col1" >0.119164</td>
+      <td id="T_5d6de_row10_col2" class="data row10 col2" >-0.043928</td>
+      <td id="T_5d6de_row10_col3" class="data row10 col3" >0.168402</td>
+      <td id="T_5d6de_row10_col4" class="data row10 col4" >0.177971</td>
+      <td id="T_5d6de_row10_col5" class="data row10 col5" >0.534557</td>
+      <td id="T_5d6de_row10_col6" class="data row10 col6" >0.338143</td>
+      <td id="T_5d6de_row10_col7" class="data row10 col7" >0.292449</td>
+      <td id="T_5d6de_row10_col8" class="data row10 col8" >0.289663</td>
+      <td id="T_5d6de_row10_col9" class="data row10 col9" >0.376294</td>
+      <td id="T_5d6de_row10_col10" class="data row10 col10" >1.000000</td>
+      <td id="T_5d6de_row10_col11" class="data row10 col11" >0.918664</td>
+      <td id="T_5d6de_row10_col12" class="data row10 col12" >0.205092</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row11" class="row_heading level0 row11" >transaction_rel</th>
+      <td id="T_5d6de_row11_col0" class="data row11 col0" >0.087782</td>
+      <td id="T_5d6de_row11_col1" class="data row11 col1" >0.115828</td>
+      <td id="T_5d6de_row11_col2" class="data row11 col2" >-0.040612</td>
+      <td id="T_5d6de_row11_col3" class="data row11 col3" >0.179223</td>
+      <td id="T_5d6de_row11_col4" class="data row11 col4" >0.182022</td>
+      <td id="T_5d6de_row11_col5" class="data row11 col5" >0.542306</td>
+      <td id="T_5d6de_row11_col6" class="data row11 col6" >0.349133</td>
+      <td id="T_5d6de_row11_col7" class="data row11 col7" >0.290790</td>
+      <td id="T_5d6de_row11_col8" class="data row11 col8" >0.301945</td>
+      <td id="T_5d6de_row11_col9" class="data row11 col9" >0.385340</td>
+      <td id="T_5d6de_row11_col10" class="data row11 col10" >0.918664</td>
+      <td id="T_5d6de_row11_col11" class="data row11 col11" >1.000000</td>
+      <td id="T_5d6de_row11_col12" class="data row11 col12" >-0.077367</td>
+    </tr>
+    <tr>
+      <th id="T_5d6de_level0_row12" class="row_heading level0 row12" >spendpertransaction_rel</th>
+      <td id="T_5d6de_row12_col0" class="data row12 col0" >-0.007161</td>
+      <td id="T_5d6de_row12_col1" class="data row12 col1" >0.013909</td>
+      <td id="T_5d6de_row12_col2" class="data row12 col2" >-0.010452</td>
+      <td id="T_5d6de_row12_col3" class="data row12 col3" >-0.001515</td>
+      <td id="T_5d6de_row12_col4" class="data row12 col4" >-0.035179</td>
+      <td id="T_5d6de_row12_col5" class="data row12 col5" >0.002519</td>
+      <td id="T_5d6de_row12_col6" class="data row12 col6" >-0.020335</td>
+      <td id="T_5d6de_row12_col7" class="data row12 col7" >0.002048</td>
+      <td id="T_5d6de_row12_col8" class="data row12 col8" >-0.007559</td>
+      <td id="T_5d6de_row12_col9" class="data row12 col9" >-0.014292</td>
+      <td id="T_5d6de_row12_col10" class="data row12 col10" >0.205092</td>
+      <td id="T_5d6de_row12_col11" class="data row12 col11" >-0.077367</td>
+      <td id="T_5d6de_row12_col12" class="data row12 col12" >1.000000</td>
+    </tr>
+  </tbody>
+</table>
+
+Unfortunately, we do not see a strong correlation between the receiving of bogos, discounts, or information and spend. There is a small relationship between methods of communication and spend, which makes me optimistic that we may be able to use all these values to develop a model to map offer properties to spend.
+
 ### Implementation
 <!-- discuss the process using the models, algorithms, and techniques applied to solve the problem. Any complications during the implementation should be mentioned. -->
+
+Ultimately, I have a fairly simply system I am trying to model, and so my machine learning techniques are fairly simple. I will use cross validation and a variety of models and parameters to find an accurate model. 
+
+Since I am mapping numeric inputs to numeric outputs, I will be using regression models. In particular, I will use a decision tree, a linear model, and a gradient boosted model. I am optimistic for the decision tree, since we are dealing with mostly integer input data, which lends itself well to being separated logically into leaves and branches.
+
+```python
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import GradientBoostingRegressor
+
+df_pair_ml = df_paired_means[[
+    "bogo",
+    "discount",
+    "informational",
+    "totaloffers",
+    "offer viewed",
+    "offer completed",
+    "mobile",
+    "web",
+    "social",
+    "email",
+    "spend_rel",
+    "transaction_rel",
+    "spendpertransaction_rel"
+]]
+
+X = df_pair_ml[[
+    "bogo",
+    "discount",
+    "informational",
+    "totaloffers",
+    # "offer viewed",
+    # "offer completed",
+    "mobile",
+    "web",
+    "social",
+    "email",
+]]
+y = df_pair_ml.spend_rel
+
+regressors = [
+    DecisionTreeRegressor(max_depth=3),
+    DecisionTreeRegressor(max_depth=5),
+    DecisionTreeRegressor(max_depth=10),
+    DecisionTreeRegressor(max_depth=20),
+    DecisionTreeRegressor(),
+    LinearRegression(),
+    GradientBoostingRegressor(n_estimators=100),
+    GradientBoostingRegressor(n_estimators=500),
+]
+
+for regressor in regressors:
+    print(cross_val_score(regressor, X, y, cv=20).mean())
+```
+
+
 ### Refinement
-<!-- describe the process to refine the algorithms and techniques, such as using cross-validation or changing the parameter settings. -->
+I used 20 cross-validations for each regression model. This is feasible, given the small size of the dataset. Additionally, for the decision tree model, I used a variety of maximum depths. For the gradient boosted regressor, I allowed for more estimators than the default of 100.
 
 ## Section 4: Results
+
 ### Model Evaluation and Validation
 <!-- discuss the models and parameters used in the methodology. If no model is used, students can discuss the methodology using data visualizations and other means. -->
+Unfortuntaly, the predictive power of the models developed is very poor, with r2 values never exceeding 0.25. 
+
+```
+>>>print(cross_val_score(regressor, X, y, cv=20).mean())
+
+Decision Tree, depth 3:        0.15197208414248792
+Decision Tree, depth 5:        0.1940728864789338
+Decision Tree, depth 10:       0.11116998903717482
+Decision Tree, depth 20:       -0.23856172203299933
+Decision Tree, unlimited:      -0.2425042809154113
+Linear Regression:             0.2366077771775426
+GradientBoost 100:             0.23960791642400778
+GradientBoost 500:             0.23376893615880764
+```
+
+The decision tree model was the worst performer, and is subject to overfitting when too great a depth is allowed. Linear regression
+
 ### Justification
 <!-- discuss the final results in detail and explain why some models, parameters, or techniques perform better over others. Show and compare the results in tabular forms or charts. -->
 
