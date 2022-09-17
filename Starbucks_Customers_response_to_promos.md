@@ -1508,13 +1508,36 @@ GradientBoost 100:             0.23960791642400778
 GradientBoost 500:             0.23376893615880764
 ```
 
-The decision tree model was the worst performer, and is subject to overfitting when too great a depth is allowed. Linear regression
+The decision tree model was the worst performer, and is subject to overfitting when too great a depth is allowed. Linear regression and gradient boosted regression performed nearly the same, indicating that there is simply poor correlation between the input variables and relative spend of each user. This was expected, of course, since the correlation matrix showed very poor correlations between these variables and spend.
+
+![predict.png](predict.png)
+
+When we look at the predictive power of our best model, we can visually observe the poor correlation. There is, of course, some correlation, and we would expect this - at a very basic level, if the offers were at all effective, I should expect some effect on user spending. However, it is unlikely that we can identify the correct ratios of offers to send to users based on a model with this lack of predictive capability.
 
 ### Justification
 <!-- discuss the final results in detail and explain why some models, parameters, or techniques perform better over others. Show and compare the results in tabular forms or charts. -->
+I want to revisit our original goal of this model, and to point out why it is not surprising that its predictive power is so poor. This model specifically aims to maximize overall spending from individuals by sending a certain combination of offers, but it fails to do so.
+
+This study, however, has been structured to understand offer success - what types of offers are most likely to be completed by users? I specifically did not use "offer completed" because this is not something that Starbucks directly controls. My model, more simply, asks "Do offers, or certain combinations of offers, result in users who spend more?" At a surface level, my model does not support this hypothesis.
+
+I think this strategy - modeling user spending, as opposed to offer efficacy - could be successful if a longer timer period were available, closer to a year. Anecdotally speaking, I do not see myself going out of my way more than once a month to fulfill an offer from a mobile app. Personally, I am not surprised that a regular user who receives 5 offers in 30 days does not necessarily spend more than a similar user who only received a single offer.
+
+By having a year's worth of data, we could also look at other effects of offers, specifically with "regular customers." As indicated above, the profit base is very largely driven by high spenders, which includes a high spend-per-transaction amount as well as high frequency of visits. I think the value of an offer might be in keeping a customer regular, or encouraging them to stay regular over a long time. Losing a regular customer is a very costly, and we want to protect the profit base as much as possible.
 
 ## Section 5: Conclusion
 ### Reflection
 <!-- summarize the end-to-end problem solution and discuss one or two particular aspects that you find interesting or difficult to implement. -->
+Overall, I think there is value in some of the findings and strategies in this effort, even if the original goal of maximizing user spending through optimizing a spend model was unsuccessful. 
+
+I believe the strategy of maximizing profit, as opposed to just chasing better offers, is the correct strategy. I suspect there are other KPIs that are related to profit-per-user that I cannot access due to the short duration of this experiment. User regularity is a major KPI that I would be interested in pursuing - if user regularity can be hardened through the use of effective promotions, then the goal of promotions should be not just to be successful, but to drive user regularity.
+
+In terms of modeling user spend as a function of promotions being offered,I believe this effort was hurt by the lack of data on the low-end - that is, users who received zero or only a single offer. If this study had taken place over a longer period of time, it would be easier to identify periods where a user received no offers, and we could compare this with offer-heavy periods and understand the efficacy of offers in driving spending.
+
 ### Improvement
 <!-- provide suggestions for the next research to improve the experiment. -->
+
+Over the course of this experiment, overall spending per customer did not seem to be driven by the number and types of offers. However, I think my next step would to be looking at "offer available" periods of time. In other words, for a single user, are they more likely to make a purchase if they have an offer available? I am almost certain that this will prove true, and that I would find greater dependencies on things like offer duration and the the value of the promos.
+
+However, I would still stand by my goal of maximizing profit. Do users who only make purchases when it is during an offer window spend more, overall, than users who ignore offers? Additionally, is the cost of redeemed offers worth it for these users? My current study suggests that these may not be true.
+
+Customer regularity, or "stickiness," is a key KPI that I would like to track. This KPI would be much easier to track with a longer study.
